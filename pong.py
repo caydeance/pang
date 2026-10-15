@@ -130,8 +130,15 @@ def init_sounds():
 
 class Game:
     def __init__(self, sounds):
-        self.left = pygame.Rect(PADDLE_X, SCREEN_HEIGHT // 2 - PADDLE_H // 2, PADDLE_W, PADDLE_H)
-        self.right = pygame.Rect(SCREEN_WIDTH - PADDLE_X - PADDLE_W, SCREEN_HEIGHT // 2 - PADDLE_H // 2, PADDLE_W, PADDLE_H)
+        self.left = pygame.Rect(
+            PADDLE_X, SCREEN_HEIGHT // 2 - PADDLE_H // 2, PADDLE_W, PADDLE_H
+        )
+        self.right = pygame.Rect(
+            SCREEN_WIDTH - PADDLE_X - PADDLE_W,
+            SCREEN_HEIGHT // 2 - PADDLE_H // 2,
+            PADDLE_W,
+            PADDLE_H,
+        )
         self.ball = pygame.Rect(0, 0, BALL_SIZE, BALL_SIZE)
 
         self.left_y = float(self.left.y)
@@ -195,7 +202,9 @@ class Game:
         self.speed = BALL_SPEED
         max_vy = BALL_SPEED * 0.7
         self.ball_vy = (random.random() * 2 - 1) * max_vy
-        self.ball_vx = math.sqrt(BALL_SPEED * BALL_SPEED - self.ball_vy * self.ball_vy) * direction
+        self.ball_vx = (
+            math.sqrt(BALL_SPEED * BALL_SPEED - self.ball_vy * self.ball_vy) * direction
+        )
         self.ai_predicted = False
 
     @staticmethod
@@ -227,7 +236,9 @@ class Game:
             target = track_target
         else:
             if not self.ai_predicted:
-                self.ai_error = (random.random() * 2 - 1) * ai_predict_error(self.ai_level)
+                self.ai_error = (random.random() * 2 - 1) * ai_predict_error(
+                    self.ai_level
+                )
                 self.ai_predicted = True
             center = self.predict_intercept(self.right.left) + BALL_SIZE / 2
             self.ai_target_y = self.clamp_y(center + self.ai_error - PADDLE_H / 2)
@@ -348,14 +359,24 @@ class Game:
 
         left_label = score_font.render(str(self.left_score), True, WHITE)
         right_label = score_font.render(str(self.right_score), True, WHITE)
-        screen.blit(left_label, left_label.get_rect(center=(SCREEN_WIDTH // 2 - 30, 40)))
-        screen.blit(right_label, right_label.get_rect(center=(SCREEN_WIDTH // 2 + 30, 40)))
+        screen.blit(
+            left_label, left_label.get_rect(center=(SCREEN_WIDTH // 2 - 30, 40))
+        )
+        screen.blit(
+            right_label, right_label.get_rect(center=(SCREEN_WIDTH // 2 + 30, 40))
+        )
 
         screen.blit(hint_font.render("W/S", True, WHITE), (24, SCREEN_HEIGHT - 24))
         if self.vs_ai:
-            screen.blit(hint_font.render(f"AI Lv{self.ai_level}", True, WHITE), (SCREEN_WIDTH - 84, SCREEN_HEIGHT - 24))
+            screen.blit(
+                hint_font.render(f"AI Lv{self.ai_level}", True, WHITE),
+                (SCREEN_WIDTH - 84, SCREEN_HEIGHT - 24),
+            )
         else:
-            screen.blit(hint_font.render("UP/DOWN", True, WHITE), (SCREEN_WIDTH - 84, SCREEN_HEIGHT - 24))
+            screen.blit(
+                hint_font.render("UP/DOWN", True, WHITE),
+                (SCREEN_WIDTH - 84, SCREEN_HEIGHT - 24),
+            )
 
         if self.state == State.PAUSED:
             self.draw_center_banner(screen, fonts, "PAUSED", "SPACE to resume")
@@ -370,9 +391,13 @@ class Game:
         title_font = fonts["gameover"]
         hint_font = fonts["hint"]
         label = title_font.render(title, True, WHITE)
-        screen.blit(label, label.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 20)))
+        screen.blit(
+            label, label.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 20))
+        )
         sub = hint_font.render(subtitle, True, DIMMED)
-        screen.blit(sub, sub.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 30)))
+        screen.blit(
+            sub, sub.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 30))
+        )
 
     def draw_menu(self, screen, fonts):
         title_font = fonts["title"]
@@ -390,7 +415,9 @@ class Game:
         start = menu_font.render("ENTER / SPACE  Select", True, WHITE)
         screen.blit(start, start.get_rect(center=(SCREEN_WIDTH // 2, 350)))
 
-        info = hint_font.render(f"W/S  Move          First to {WIN_SCORE}", True, DIMMED)
+        info = hint_font.render(
+            f"W/S  Move          First to {WIN_SCORE}", True, DIMMED
+        )
         screen.blit(info, info.get_rect(center=(SCREEN_WIDTH // 2, 400)))
 
     def draw_levels(self, screen, fonts):
@@ -421,7 +448,10 @@ class Game:
         pygame.draw.circle(screen, WHITE, (marker, bar_y + 4), 7)
 
         if self.ai_level < AI_LEVELS:
-            screen.blit(hint_font.render(f"Lv {self.ai_level + 1}", True, DIMMED), (bar_x + bar_w - 30, bar_y + 14))
+            screen.blit(
+                hint_font.render(f"Lv {self.ai_level + 1}", True, DIMMED),
+                (bar_x + bar_w - 30, bar_y + 14),
+            )
 
         start = menu_font.render("ENTER / SPACE  Play", True, WHITE)
         screen.blit(start, start.get_rect(center=(SCREEN_WIDTH // 2, 405)))
@@ -444,15 +474,25 @@ class Game:
             banner = "AI WINS" if self.vs_ai else "RIGHT WINS"
 
         label = gameover_font.render(banner, True, WHITE)
-        screen.blit(label, label.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 50)))
+        screen.blit(
+            label, label.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 50))
+        )
 
-        score = menu_font.render(f"{self.left_score}   -   {self.right_score}", True, DIMMED)
-        screen.blit(score, score.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 5)))
+        score = menu_font.render(
+            f"{self.left_score}   -   {self.right_score}", True, DIMMED
+        )
+        screen.blit(
+            score, score.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 5))
+        )
 
         again = hint_font.render("R  Play again", True, WHITE)
-        screen.blit(again, again.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 60)))
+        screen.blit(
+            again, again.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 60))
+        )
         back = hint_font.render("ESC  Menu", True, DIMMED)
-        screen.blit(back, back.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 84)))
+        screen.blit(
+            back, back.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 84))
+        )
 
 
 def main():
@@ -495,9 +535,19 @@ def main():
                 elif game.state == State.LEVELS:
                     if event.key == pygame.K_ESCAPE:
                         game.state = State.MENU
-                    elif event.key in (pygame.K_w, pygame.K_UP, pygame.K_a, pygame.K_LEFT):
+                    elif event.key in (
+                        pygame.K_w,
+                        pygame.K_UP,
+                        pygame.K_a,
+                        pygame.K_LEFT,
+                    ):
                         game.adjust_level(-1)
-                    elif event.key in (pygame.K_s, pygame.K_DOWN, pygame.K_d, pygame.K_RIGHT):
+                    elif event.key in (
+                        pygame.K_s,
+                        pygame.K_DOWN,
+                        pygame.K_d,
+                        pygame.K_RIGHT,
+                    ):
                         game.adjust_level(1)
                     elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
                         game.start()
