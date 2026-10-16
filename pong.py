@@ -35,6 +35,17 @@ AI_PREDICT_ERROR_MIN = 4.0
 
 AI_AIM_STRENGTH = 0.85
 
+PADDLE_ACCEL = 6000.0
+
+MAX_SHAKE = 7.0
+TRAUMA_DECAY = 1.8
+
+TRAIL_LEN = 12
+
+PARTICLE_COUNT = 24
+PARTICLE_LIFE = 0.6
+PARTICLE_SPEED = 260.0
+
 SAMPLE_RATE = 48000
 
 WHITE = (255, 255, 255)
@@ -42,6 +53,10 @@ BG = (16, 16, 24)
 DASH = (96, 96, 112)
 DIMMED = (128, 128, 144)
 HIGHLIGHT = (120, 200, 255)
+
+
+def lerp_color(c1, c2, t):
+    return tuple(int(a + (b - a) * t) for a, b in zip(c1, c2))
 
 
 class State(Enum):
@@ -59,6 +74,7 @@ MENU_OPTIONS = [
 
 
 def _ramp(level, lo, hi):
+    """Map a level to a 0..1 progress value, interpolating between lo and hi."""
     if hi <= lo:
         return 1.0 if level >= hi else 0.0
     return max(0.0, min(1.0, (level - lo) / (hi - lo)))
@@ -163,6 +179,15 @@ class Game:
         self.ai_predicted = False
         self.ai_error = 0.0
 
+        self.left_vy = 0.0
+        self.right_vy = 0.0
+
+        self.trauma = 0.0
+        self.trail = []
+        self.particles = []
+
+        self.field = None
+
         self.reset_ball(1)
 
     def menu_move(self, delta):
@@ -185,12 +210,40 @@ class Game:
         if sound is not None:
             sound.play()
 
+    def add_trauma(self, amount):
+        self.trauma = min(1.0, self.trauma + amount)
+
+    def shake_offset(self):
+        if self.trauma <= 0:
+            return 0, 0
+        mag = MAX_SHAKE * self.trauma * self.trauma
+        return (random.uniform(-mag, mag), random.uniform(-mag, mag))
+
+    def spawn_particles(self, x, y):
+        self.particles = []
+        for _ in range(PARTICLE_COUNT):
+            ang = random.uniform(0, 2 * math.pi)
+            spd = random.uniform(0.3, 1.0) * PARTICLE_SPEED
+            self.particles.append(
+                [x, y, math.cos(ang) * spd, math.sin(ang) * spd, PARTICLE_LIFE, PARTICLE_LIFE]
+            )
+
+    def get_field(self):
+        if self.field is None:
+            self.field = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+        return self.field
+
     def start(self):
         self.left_score = 0
         self.right_score = 0
         self.winner = None
         self.left_y = SCREEN_HEIGHT / 2 - PADDLE_H / 2
         self.right_y = SCREEN_HEIGHT / 2 - PADDLE_H / 2
+        self.left_vy = 0.0
+        self.right_vy = 0.0
+        self.trauma = 0.0
+        self.trail = []
+        self.particles = []
         self.reset_ball(random.choice((-1.0, 1.0)))
         self.state = State.PLAYING
 
@@ -206,6 +259,7 @@ class Game:
             math.sqrt(BALL_SPEED * BALL_SPEED - self.ball_vy * self.ball_vy) * direction
         )
         self.ai_predicted = False
+        self.trail = []
 
     @staticmethod
     def clamp_y(y):
@@ -236,13 +290,12 @@ class Game:
             target = track_target
         else:
             if not self.ai_predicted:
-                self.ai_error = (random.random() * 2 - 1) * ai_predict_error(
-                    self.ai_level
-                )
+                err_mag = ai_predict_error(self.ai_level)
+                self.ai_error = (random.random() * 2 - 1) * err_mag
                 self.ai_predicted = True
             center = self.predict_intercept(self.right.left) + BALL_SIZE / 2
-            self.ai_target_y = self.clamp_y(center + self.ai_error - PADDLE_H / 2)
-            target = track_target + (self.ai_target_y - track_target) * blend
+            pred_y = self.clamp_y(center + self.ai_error - PADDLE_H / 2)
+            target = track_target + (pred_y - track_target) * blend
 
         aim = ai_aim_skill(self.ai_level)
         if aim > 0:
@@ -258,6 +311,13 @@ class Game:
         else:
             self.right_y += math.copysign(step, diff)
 
+    @staticmethod
+    def approach(current, target, rate, dt):
+        step = rate * dt
+        if abs(target - current) <= step:
+            return target
+        return current + math.copysign(step, target - current)
+
     def bounce_off_paddle(self, paddle, direction):
         rel = (self.ball.y + BALL_SIZE / 2) - (paddle.y + PADDLE_H / 2)
         rel /= PADDLE_H / 2
@@ -269,18 +329,25 @@ class Game:
 
     def update(self, dt):
         keys = pygame.key.get_pressed()
+
+        want_left = 0.0
         if keys[pygame.K_w]:
-            self.left_y -= PADDLE_SPEED * dt
+            want_left -= PADDLE_SPEED
         if keys[pygame.K_s]:
-            self.left_y += PADDLE_SPEED * dt
+            want_left += PADDLE_SPEED
+        self.left_vy = self.approach(self.left_vy, want_left, PADDLE_ACCEL, dt)
+        self.left_y += self.left_vy * dt
 
         if self.vs_ai:
             self.update_ai(dt)
         else:
+            want_right = 0.0
             if keys[pygame.K_UP]:
-                self.right_y -= PADDLE_SPEED * dt
+                want_right -= PADDLE_SPEED
             if keys[pygame.K_DOWN]:
-                self.right_y += PADDLE_SPEED * dt
+                want_right += PADDLE_SPEED
+            self.right_vy = self.approach(self.right_vy, want_right, PADDLE_ACCEL, dt)
+            self.right_y += self.right_vy * dt
 
         self.left_y = self.clamp_y(self.left_y)
         self.right_y = self.clamp_y(self.right_y)
@@ -294,37 +361,66 @@ class Game:
             self.by = 0
             self.ball_vy = -self.ball_vy
             self.ai_predicted = False
+            self.add_trauma(0.12)
             self.play("wall")
         if self.by + BALL_SIZE >= SCREEN_HEIGHT:
             self.by = SCREEN_HEIGHT - BALL_SIZE
             self.ball_vy = -self.ball_vy
             self.ai_predicted = False
+            self.add_trauma(0.12)
             self.play("wall")
 
         self.ball.x = int(self.bx)
         self.ball.y = int(self.by)
 
+        self.trail.append((self.bx, self.by))
+        if len(self.trail) > TRAIL_LEN:
+            self.trail.pop(0)
+
         if self.ball_vx < 0 and self.ball.colliderect(self.left):
             self.bx = self.left.right
             self.bounce_off_paddle(self.left, 1)
+            self.add_trauma(0.18)
             self.play("paddle")
         if self.ball_vx > 0 and self.ball.colliderect(self.right):
             self.bx = self.right.left - BALL_SIZE
             self.bounce_off_paddle(self.right, -1)
+            self.add_trauma(0.18)
             self.play("paddle")
 
         if self.bx + BALL_SIZE < 0:
             self.right_score += 1
+            self.add_trauma(0.5)
+            self.spawn_particles(0, self.by + BALL_SIZE / 2)
             self.play("score")
             self.check_game_over()
             if self.state == State.PLAYING:
                 self.reset_ball(1)
         if self.bx > SCREEN_WIDTH:
             self.left_score += 1
+            self.add_trauma(0.5)
+            self.spawn_particles(SCREEN_WIDTH, self.by + BALL_SIZE / 2)
             self.play("score")
             self.check_game_over()
             if self.state == State.PLAYING:
                 self.reset_ball(-1)
+
+        self.trauma = max(0.0, self.trauma - TRAUMA_DECAY * dt)
+        self._update_particles(dt)
+
+    def _update_particles(self, dt):
+        alive = []
+        for p in self.particles:
+            p[4] -= dt
+            if p[4] <= 0:
+                continue
+            p[0] += p[2] * dt
+            p[1] += p[3] * dt
+            drag = 1.0 - 3.0 * dt
+            p[2] *= drag
+            p[3] *= drag
+            alive.append(p)
+        self.particles = alive
 
     def check_game_over(self):
         if self.left_score >= WIN_SCORE:
@@ -347,41 +443,62 @@ class Game:
             self.draw_levels(screen, fonts)
             return
 
-        for y in range(0, SCREEN_HEIGHT, 20):
-            pygame.draw.rect(screen, DASH, (SCREEN_WIDTH // 2 - 2, y, 4, 12))
+        field = self.get_field()
+        field.fill(BG)
 
-        pygame.draw.rect(screen, WHITE, self.left)
-        pygame.draw.rect(screen, WHITE, self.right)
-        pygame.draw.rect(screen, WHITE, self.ball)
+        for y in range(0, SCREEN_HEIGHT, 20):
+            pygame.draw.rect(field, DASH, (SCREEN_WIDTH // 2 - 2, y, 4, 12))
+
+        self.draw_trail(field)
+
+        pygame.draw.rect(field, WHITE, self.left)
+        pygame.draw.rect(field, WHITE, self.right)
+        pygame.draw.rect(field, WHITE, self.ball)
+
+        self.draw_particles(field)
 
         score_font = fonts["score"]
         hint_font = fonts["hint"]
 
         left_label = score_font.render(str(self.left_score), True, WHITE)
         right_label = score_font.render(str(self.right_score), True, WHITE)
-        screen.blit(
-            left_label, left_label.get_rect(center=(SCREEN_WIDTH // 2 - 30, 40))
-        )
-        screen.blit(
-            right_label, right_label.get_rect(center=(SCREEN_WIDTH // 2 + 30, 40))
-        )
+        field.blit(left_label, left_label.get_rect(center=(SCREEN_WIDTH // 2 - 30, 40)))
+        field.blit(right_label, right_label.get_rect(center=(SCREEN_WIDTH // 2 + 30, 40)))
 
-        screen.blit(hint_font.render("W/S", True, WHITE), (24, SCREEN_HEIGHT - 24))
+        field.blit(hint_font.render("W/S", True, WHITE), (24, SCREEN_HEIGHT - 24))
         if self.vs_ai:
-            screen.blit(
+            field.blit(
                 hint_font.render(f"AI Lv{self.ai_level}", True, WHITE),
                 (SCREEN_WIDTH - 84, SCREEN_HEIGHT - 24),
             )
         else:
-            screen.blit(
+            field.blit(
                 hint_font.render("UP/DOWN", True, WHITE),
                 (SCREEN_WIDTH - 84, SCREEN_HEIGHT - 24),
             )
+
+        ox, oy = self.shake_offset()
+        screen.blit(field, (ox, oy))
 
         if self.state == State.PAUSED:
             self.draw_center_banner(screen, fonts, "PAUSED", "SPACE to resume")
         elif self.state == State.GAMEOVER:
             self.draw_game_over(screen, fonts)
+
+    def draw_trail(self, surface):
+        n = len(self.trail)
+        for i, (tx, ty) in enumerate(self.trail):
+            frac = (i + 1) / n
+            color = lerp_color(BG, WHITE, frac * 0.6)
+            radius = max(1, int(BALL_SIZE / 2 * (0.25 + 0.75 * frac)))
+            center = (int(tx + BALL_SIZE / 2), int(ty + BALL_SIZE / 2))
+            pygame.draw.circle(surface, color, center, radius)
+
+    def draw_particles(self, surface):
+        for px, py, _vx, _vy, life, max_life in self.particles:
+            frac = max(0.0, life / max_life)
+            color = lerp_color(BG, HIGHLIGHT, frac)
+            pygame.draw.circle(surface, color, (int(px), int(py)), 1 + int(3 * frac))
 
     def draw_center_banner(self, screen, fonts, title, subtitle):
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
@@ -514,8 +631,8 @@ def main():
 
     game = Game(sounds)
     accumulator = 0.0
-    running = True
 
+    running = True
     while running:
         frame_dt = clock.tick(60) / 1000.0
 
