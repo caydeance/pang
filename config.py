@@ -1,0 +1,51 @@
+"""Shared constants, colors, and the game-state enum."""
+
+import math
+from enum import Enum, auto
+
+SCREEN_WIDTH = 640
+SCREEN_HEIGHT = 480
+
+PADDLE_W = 12
+PADDLE_H = 80
+PADDLE_X = 24
+
+PADDLE_SPEED = 540.0
+
+BALL_SIZE = 12
+BALL_SPEED = 300.0
+MAX_BALL_SPEED = 640.0
+BALL_SPEED_UP = 1.06
+MAX_BOUNCE_ANGLE = math.pi / 3
+
+WIN_SCORE = 7
+
+FIXED_DT = 1.0 / 120.0
+MAX_FRAME_TIME = 0.25
+
+PADDLE_ACCEL = 6000.0
+
+MAX_SHAKE = 7.0
+TRAUMA_DECAY = 1.8
+
+TRAIL_LEN = 12
+
+PARTICLE_COUNT = 24
+PARTICLE_LIFE = 0.6
+PARTICLE_SPEED = 260.0
+
+SAMPLE_RATE = 48000
+
+WHITE = (255, 255, 255)
+BG = (16, 16, 24)
+DASH = (96, 96, 112)
+DIMMED = (128, 128, 144)
+HIGHLIGHT = (120, 200, 255)
+
+
+class State(Enum):
+    MENU = auto()
+    LEVELS = auto()
+    PLAYING = auto()
+    PAUSED = auto()
+    GAMEOVER = auto()

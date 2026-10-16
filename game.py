@@ -1,147 +1,46 @@
-import array
+"""The simulation: paddle/ball physics, scoring, AI, and playfield rendering."""
+
 import math
 import random
-import sys
-from enum import Enum, auto
 
 import pygame
 
-SCREEN_WIDTH = 640
-SCREEN_HEIGHT = 480
-
-PADDLE_W = 12
-PADDLE_H = 80
-PADDLE_X = 24
-
-PADDLE_SPEED = 540.0
-
-BALL_SIZE = 12
-BALL_SPEED = 300.0
-MAX_BALL_SPEED = 640.0
-BALL_SPEED_UP = 1.06
-MAX_BOUNCE_ANGLE = math.pi / 3
-
-WIN_SCORE = 7
-
-FIXED_DT = 1.0 / 120.0
-MAX_FRAME_TIME = 0.25
-
-AI_LEVELS = 15
-AI_SPEED_MIN = 140.0
-AI_SPEED_MAX = 360.0
-
-AI_PREDICT_ERROR_MAX = 70.0
-AI_PREDICT_ERROR_MIN = 4.0
-
-AI_AIM_STRENGTH = 0.85
-
-PADDLE_ACCEL = 6000.0
-
-MAX_SHAKE = 7.0
-TRAUMA_DECAY = 1.8
-
-TRAIL_LEN = 12
-
-PARTICLE_COUNT = 24
-PARTICLE_LIFE = 0.6
-PARTICLE_SPEED = 260.0
-
-SAMPLE_RATE = 48000
-
-WHITE = (255, 255, 255)
-BG = (16, 16, 24)
-DASH = (96, 96, 112)
-DIMMED = (128, 128, 144)
-HIGHLIGHT = (120, 200, 255)
-
-
-def lerp_color(c1, c2, t):
-    return tuple(int(a + (b - a) * t) for a, b in zip(c1, c2))
-
-
-class State(Enum):
-    MENU = auto()
-    LEVELS = auto()
-    PLAYING = auto()
-    PAUSED = auto()
-    GAMEOVER = auto()
-
-
-MENU_OPTIONS = [
-    ("Player vs AI", True),
-    ("Two Players", False),
-]
-
-
-def _ramp(level, lo, hi):
-    """Map a level to a 0..1 progress value, interpolating between lo and hi."""
-    if hi <= lo:
-        return 1.0 if level >= hi else 0.0
-    return max(0.0, min(1.0, (level - lo) / (hi - lo)))
-
-
-def ai_speed(level):
-    return AI_SPEED_MIN + (AI_SPEED_MAX - AI_SPEED_MIN) * _ramp(level, 3, 7)
-
-
-def ai_predict_blend(level):
-    return _ramp(level, 6, 10)
-
-
-def ai_predict_error(level):
-    t = _ramp(level, 6, 15)
-    return AI_PREDICT_ERROR_MAX + (AI_PREDICT_ERROR_MIN - AI_PREDICT_ERROR_MAX) * t
-
-
-def ai_aim_skill(level):
-    return _ramp(level, 10, 15)
-
-
-def level_description(level):
-    if level <= 3:
-        return "Slowly follows the ball"
-    if level <= 6:
-        return "Follows the ball faster"
-    if level <= 9:
-        return "Predicts where the ball lands"
-    return "Predicts and aims away from you"
-
-
-def level_tag(level):
-    if level <= 3:
-        return "BEGINNER"
-    if level <= 6:
-        return "EASY"
-    if level <= 9:
-        return "MEDIUM"
-    if level <= 12:
-        return "HARD"
-    return "EXPERT"
-
-
-def make_tone(freq, secs, vol=0.5):
-    n = int(secs * SAMPLE_RATE)
-    buf = array.array("h")
-    for i in range(n):
-        t = i / SAMPLE_RATE
-        env = math.exp(-4 * t / secs)
-        s = int(math.sin(2 * math.pi * freq * t) * env * vol * 32767)
-        buf.append(s)
-        buf.append(s)
-    return pygame.mixer.Sound(buffer=buf.tobytes())
-
-
-def init_sounds():
-    try:
-        pygame.mixer.init(frequency=SAMPLE_RATE, size=-16, channels=2)
-    except pygame.error:
-        return {}
-    return {
-        "paddle": make_tone(440, 0.06, 0.5),
-        "wall": make_tone(220, 0.05, 0.4),
-        "score": make_tone(660, 0.18, 0.5),
-        "win": make_tone(880, 0.35, 0.5),
-    }
+import menu
+from ai import (
+    AI_AIM_STRENGTH,
+    AI_LEVELS,
+    ai_aim_skill,
+    ai_predict_blend,
+    ai_predict_error,
+    ai_speed,
+)
+from config import (
+    BALL_SIZE,
+    BALL_SPEED,
+    BALL_SPEED_UP,
+    BG,
+    DASH,
+    HIGHLIGHT,
+    MAX_BALL_SPEED,
+    MAX_BOUNCE_ANGLE,
+    MAX_SHAKE,
+    PADDLE_ACCEL,
+    PADDLE_H,
+    PADDLE_SPEED,
+    PADDLE_W,
+    PADDLE_X,
+    PARTICLE_COUNT,
+    PARTICLE_LIFE,
+    PARTICLE_SPEED,
+    SCREEN_HEIGHT,
+    SCREEN_WIDTH,
+    State,
+    TRAIL_LEN,
+    TRAUMA_DECAY,
+    WHITE,
+    WIN_SCORE,
+)
+from utils import lerp_color
 
 
 class Game:
@@ -191,9 +90,9 @@ class Game:
         self.reset_ball(1)
 
     def menu_move(self, delta):
-        opts = [vs_ai for _, vs_ai in MENU_OPTIONS]
+        opts = [vs_ai for _, vs_ai in menu.MENU_OPTIONS]
         idx = opts.index(self.vs_ai)
-        idx = max(0, min(len(MENU_OPTIONS) - 1, idx + delta))
+        idx = max(0, min(len(menu.MENU_OPTIONS) - 1, idx + delta))
         self.vs_ai = opts[idx]
 
     def select_menu(self):
@@ -436,11 +335,11 @@ class Game:
         screen.fill(BG)
 
         if self.state == State.MENU:
-            self.draw_menu(screen, fonts)
+            menu.draw_menu(screen, self, fonts)
             return
 
         if self.state == State.LEVELS:
-            self.draw_levels(screen, fonts)
+            menu.draw_levels(screen, self, fonts)
             return
 
         field = self.get_field()
@@ -481,9 +380,9 @@ class Game:
         screen.blit(field, (ox, oy))
 
         if self.state == State.PAUSED:
-            self.draw_center_banner(screen, fonts, "PAUSED", "SPACE to resume")
+            menu.draw_center_banner(screen, fonts, "PAUSED", "SPACE to resume")
         elif self.state == State.GAMEOVER:
-            self.draw_game_over(screen, fonts)
+            menu.draw_game_over(screen, self, fonts)
 
     def draw_trail(self, surface):
         n = len(self.trail)
@@ -499,212 +398,3 @@ class Game:
             frac = max(0.0, life / max_life)
             color = lerp_color(BG, HIGHLIGHT, frac)
             pygame.draw.circle(surface, color, (int(px), int(py)), 1 + int(3 * frac))
-
-    def draw_center_banner(self, screen, fonts, title, subtitle):
-        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 150))
-        screen.blit(overlay, (0, 0))
-
-        title_font = fonts["gameover"]
-        hint_font = fonts["hint"]
-        label = title_font.render(title, True, WHITE)
-        screen.blit(
-            label, label.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 20))
-        )
-        sub = hint_font.render(subtitle, True, DIMMED)
-        screen.blit(
-            sub, sub.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 30))
-        )
-
-    def draw_menu(self, screen, fonts):
-        title_font = fonts["title"]
-        menu_font = fonts["menu"]
-        hint_font = fonts["hint"]
-
-        title = title_font.render("PONG", True, WHITE)
-        screen.blit(title, title.get_rect(center=(SCREEN_WIDTH // 2, 120)))
-
-        for i, (text, vs_ai) in enumerate(MENU_OPTIONS):
-            clr = HIGHLIGHT if vs_ai == self.vs_ai else DIMMED
-            label = menu_font.render(text, True, clr)
-            screen.blit(label, label.get_rect(center=(SCREEN_WIDTH // 2, 220 + i * 48)))
-
-        start = menu_font.render("ENTER / SPACE  Select", True, WHITE)
-        screen.blit(start, start.get_rect(center=(SCREEN_WIDTH // 2, 350)))
-
-        info = hint_font.render(
-            f"W/S  Move          First to {WIN_SCORE}", True, DIMMED
-        )
-        screen.blit(info, info.get_rect(center=(SCREEN_WIDTH // 2, 400)))
-
-    def draw_levels(self, screen, fonts):
-        title_font = fonts["title"]
-        menu_font = fonts["menu"]
-        hint_font = fonts["hint"]
-
-        title = title_font.render("AI LEVEL", True, WHITE)
-        screen.blit(title, title.get_rect(center=(SCREEN_WIDTH // 2, 78)))
-
-        num_font = pygame.font.Font(None, 150)
-        number = num_font.render(str(self.ai_level), True, HIGHLIGHT)
-        screen.blit(number, number.get_rect(center=(SCREEN_WIDTH // 2, 195)))
-
-        tag = menu_font.render(level_tag(self.ai_level), True, WHITE)
-        screen.blit(tag, tag.get_rect(center=(SCREEN_WIDTH // 2, 285)))
-
-        desc = hint_font.render(level_description(self.ai_level), True, DIMMED)
-        screen.blit(desc, desc.get_rect(center=(SCREEN_WIDTH // 2, 320)))
-
-        bar_x, bar_w = SCREEN_WIDTH // 2 - 150, 300
-        bar_y = 350
-        pygame.draw.rect(screen, DASH, (bar_x, bar_y, bar_w, 8))
-        seg = bar_w / AI_LEVELS
-        fill = int(seg * self.ai_level)
-        pygame.draw.rect(screen, HIGHLIGHT, (bar_x, bar_y, fill, 8))
-        marker = bar_x + int(seg * (self.ai_level - 0.5))
-        pygame.draw.circle(screen, WHITE, (marker, bar_y + 4), 7)
-
-        if self.ai_level < AI_LEVELS:
-            screen.blit(
-                hint_font.render(f"Lv {self.ai_level + 1}", True, DIMMED),
-                (bar_x + bar_w - 30, bar_y + 14),
-            )
-
-        start = menu_font.render("ENTER / SPACE  Play", True, WHITE)
-        screen.blit(start, start.get_rect(center=(SCREEN_WIDTH // 2, 405)))
-
-        info = hint_font.render("W/S or A/D  Change Level", True, DIMMED)
-        screen.blit(info, info.get_rect(center=(SCREEN_WIDTH // 2, 445)))
-
-    def draw_game_over(self, screen, fonts):
-        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 170))
-        screen.blit(overlay, (0, 0))
-
-        gameover_font = fonts["gameover"]
-        menu_font = fonts["menu"]
-        hint_font = fonts["hint"]
-
-        if self.winner == "LEFT":
-            banner = "YOU WIN" if self.vs_ai else "LEFT WINS"
-        else:
-            banner = "AI WINS" if self.vs_ai else "RIGHT WINS"
-
-        label = gameover_font.render(banner, True, WHITE)
-        screen.blit(
-            label, label.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 50))
-        )
-
-        score = menu_font.render(
-            f"{self.left_score}   -   {self.right_score}", True, DIMMED
-        )
-        screen.blit(
-            score, score.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 5))
-        )
-
-        again = hint_font.render("R  Play again", True, WHITE)
-        screen.blit(
-            again, again.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 60))
-        )
-        back = hint_font.render("ESC  Menu", True, DIMMED)
-        screen.blit(
-            back, back.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 84))
-        )
-
-
-def main():
-    pygame.mixer.pre_init(SAMPLE_RATE, -16, 2, 512)
-    pygame.init()
-    sounds = init_sounds()
-
-    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-    pygame.display.set_caption("Pong")
-    clock = pygame.time.Clock()
-
-    fonts = {
-        "title": pygame.font.Font(None, 110),
-        "gameover": pygame.font.Font(None, 72),
-        "menu": pygame.font.Font(None, 40),
-        "score": pygame.font.Font(None, 56),
-        "hint": pygame.font.Font(None, 22),
-    }
-
-    game = Game(sounds)
-    accumulator = 0.0
-
-    running = True
-    while running:
-        frame_dt = clock.tick(60) / 1000.0
-
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-            elif event.type == pygame.KEYDOWN:
-                if game.state == State.MENU:
-                    if event.key == pygame.K_ESCAPE:
-                        running = False
-                    elif event.key in (pygame.K_w, pygame.K_UP):
-                        game.menu_move(-1)
-                    elif event.key in (pygame.K_s, pygame.K_DOWN):
-                        game.menu_move(1)
-                    elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
-                        game.select_menu()
-                elif game.state == State.LEVELS:
-                    if event.key == pygame.K_ESCAPE:
-                        game.state = State.MENU
-                    elif event.key in (
-                        pygame.K_w,
-                        pygame.K_UP,
-                        pygame.K_a,
-                        pygame.K_LEFT,
-                    ):
-                        game.adjust_level(-1)
-                    elif event.key in (
-                        pygame.K_s,
-                        pygame.K_DOWN,
-                        pygame.K_d,
-                        pygame.K_RIGHT,
-                    ):
-                        game.adjust_level(1)
-                    elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
-                        game.start()
-                elif game.state == State.PLAYING:
-                    if event.key == pygame.K_ESCAPE:
-                        game.state = State.MENU
-                    elif event.key == pygame.K_SPACE:
-                        game.state = State.PAUSED
-                    elif event.key == pygame.K_r:
-                        game.start()
-                elif game.state == State.PAUSED:
-                    if event.key == pygame.K_SPACE:
-                        game.state = State.PLAYING
-                    elif event.key == pygame.K_ESCAPE:
-                        game.state = State.MENU
-                    elif event.key == pygame.K_r:
-                        game.start()
-                elif game.state == State.GAMEOVER:
-                    if event.key == pygame.K_r:
-                        game.start()
-                    elif event.key in (pygame.K_ESCAPE, pygame.K_RETURN):
-                        game.state = State.MENU
-
-        if game.state == State.PLAYING:
-            accumulator = min(accumulator + frame_dt, MAX_FRAME_TIME)
-            while accumulator >= FIXED_DT:
-                game.update(FIXED_DT)
-                accumulator -= FIXED_DT
-                if game.state != State.PLAYING:
-                    accumulator = 0.0
-                    break
-        else:
-            accumulator = 0.0
-
-        game.draw(screen, fonts)
-        pygame.display.flip()
-
-    pygame.quit()
-    sys.exit()
-
-
-if __name__ == "__main__":
-    main()
